@@ -1,0 +1,249 @@
+<html>
+	<head>
+		<meta charset="UTF-8" />
+		<title>Fulltech Viewer</title>
+		<style>
+			body
+			{
+				font-family: Arial, sans-serif;
+				margin: 20px;
+			}
+
+			textarea
+			{
+				width: 100%;
+				height: 200px;
+			}
+			details
+			{
+				margin: 10px 0;
+			}
+
+			summary
+			{
+				font-weight: bold;
+				cursor: pointer;
+			}
+
+			summary button
+			{
+				margin-right: 8px;
+			}
+		</style>
+	</head>
+	<body>
+		<h2>VOSS/FabricEngine Fulltech Viewer</h2>
+
+		<p>Select the fulltech log file or paste the fulletch below:</p>
+
+		<input type="file" id="filePicker" accept=".txt" />
+
+		<br />
+		<br />
+
+		<textarea id="textInput" placeholder="Paste content here..."></textarea>
+
+		<br />
+		<br />
+
+		<button id="processBtn">Process</button>
+
+		<script>
+			"use strict";
+
+			function readFile(file)
+			{
+				return new Promise(function(resolve, reject)
+				{
+					const reader = new FileReader();
+					reader.onload = () => resolve(reader.result);
+					reader.onerror = () => reject(reader.error);
+					reader.readAsText(file);
+				});
+			}
+
+			// Process the text into sections using a Map. It looks for headers like: Command:[number] [ some command ]
+			function processContent(content)
+			{
+				const headerRegex = /^Command:\[\d+\]\s*\[\s*(.*?)\s*\]\s*$/gm;
+				const sections    = [];
+				let lastIndex     = 0;
+				let match;
+
+				while((match = headerRegex.exec(content)) !== null)
+				{
+					const command     = match[1];
+					const headerStart = match.index;
+
+					if(sections.length > 0)
+					{
+						sections[sections.length - 1].content = content.slice(lastIndex, headerStart).trim();
+					}
+
+					sections.push({command, content: ""});
+					lastIndex = headerRegex.lastIndex;
+				}
+
+				if (sections.length > 0)
+				{
+					sections[sections.length - 1].content = content.slice(lastIndex).trim();
+				}
+
+				const sectionMap = new Map();
+
+				sections.forEach(function(section)
+				{
+					sectionMap.set(section.command, section.content);
+				});
+
+				return sectionMap;
+			}
+
+			// Function to filter details sections based on the threshold
+			function filterSections()
+			{
+				const threshold   = parseInt(document.getElementById("lineThreshold").value, 10);
+				const detailsList = document.querySelectorAll("details");
+
+				detailsList.forEach(function(details)
+				{
+					const lines = parseInt(details.getAttribute("data-lines"), 10);
+
+					if(lines <= threshold)
+					{
+						details.style.display = "none";
+					}
+					else
+					{
+						details.style.display = "";
+					}
+				});
+			}
+
+			// Clears the document body and adds a number input at the top for filtering
+			function renderSections(sectionMap)
+			{
+				// Clear the entire document body.
+				document.body.innerHTML = "";
+
+				// Create filter control container.
+				const filterContainer              = document.createElement("div");
+				filterContainer.style.marginBottom = "20px";
+
+				const label       = document.createElement("label");
+				label.textContent = "Hide <details> sections with <= ";
+				label.setAttribute("for", "lineThreshold");
+
+				filterContainer.appendChild(label);
+
+				const numberInput = document.createElement("input");
+				numberInput.type  = "number";
+				numberInput.id    = "lineThreshold";
+				numberInput.value = "5";
+				numberInput.min   = "1";
+				numberInput.style.marginLeft = "5px";
+
+				filterContainer.appendChild(numberInput);
+				numberInput.addEventListener("input", filterSections);
+
+				document.body.appendChild(filterContainer);
+
+				const container = document.createElement("div"); // Create container for sections
+
+				sectionMap.forEach(function(content, command)
+				{
+					const details   = document.createElement("details");
+					details.open    = false;
+					const lineCount = content.split("\n").length; // Compute number of lines in the content
+					details.setAttribute("data-lines", lineCount);
+
+					// Create summary element
+					const summary = document.createElement("summary");
+
+					// Create a copy button to appear before the command text.
+					const copyButton       = document.createElement("button");
+					copyButton.type        = "button";
+					copyButton.textContent = "Copy";
+
+					// Prevent summary toggle when clicking the button.
+					copyButton.addEventListener("click", function(event)
+					{
+						event.stopPropagation();
+						const detailsElem = event.target.closest("details");
+						const preElem     = detailsElem.querySelector("pre");
+
+						// Retrieve the command text from the summary's span.
+						const commandText = detailsElem.querySelector("span.command-text").textContent;
+
+						// Prepend the key name (command) on a new line to the content.
+						const textToCopy = commandText + "\n" + preElem.textContent;
+						navigator.clipboard.writeText(textToCopy).then(function()
+						{
+							copyButton.textContent = "Copied!";
+							setTimeout(() => (copyButton.textContent = "Copy"), 2000);
+						}).catch(function(error)
+						{
+							alert("Failed to copy: " + error)
+						});
+					});
+
+					summary.appendChild(copyButton);
+
+					// Create span for the command text
+					const commandSpan       = document.createElement("span");
+					commandSpan.className   = "command-text";
+					commandSpan.textContent = command;
+					summary.appendChild(commandSpan);
+
+					details.appendChild(summary);
+
+					// Use a pre element to preserve formatting.
+					const pre       = document.createElement("pre");
+					pre.textContent = content;
+					details.appendChild(pre);
+					container.appendChild(details);
+				});
+
+				document.body.appendChild(container);
+			}
+
+			// Main function that processes and renders the content.
+			async function processAndRender()
+			{
+				let text = "";
+				const fileInput = document.getElementById("filePicker");
+				const textArea = document.getElementById("textInput");
+				if(fileInput.files && fileInput.files[0])
+				{
+					try
+					{
+						text = await readFile(fileInput.files[0]);
+					}
+					catch(error)
+					{
+						alert("Error reading file: " + error);
+
+						return;
+					}
+				}
+				else if(textArea.value.trim() !== "")
+				{
+					text = textArea.value;
+				}
+				else
+				{
+					alert("Please select a file or paste some text.");
+
+					return;
+				}
+
+				const sectionMap = processContent(text);
+				renderSections(sectionMap);
+				filterSections(); // Apply the default filtering in the initial view
+			}
+
+			document.getElementById("processBtn").addEventListener("click", processAndRender);
+			document.getElementById("filePicker").addEventListener("change", processAndRender);
+		</script>
+	</body>
+</html>
